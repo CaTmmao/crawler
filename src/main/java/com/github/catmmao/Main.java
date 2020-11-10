@@ -12,43 +12,79 @@ import org.jsoup.nodes.Element;
 import org.jsoup.select.Elements;
 
 import java.io.IOException;
+import java.sql.*;
 import java.util.ArrayList;
-import java.util.List;
 
 public class Main {
-    public static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException, SQLException {
         String indexUrl = "https://sina.cn";
-        List<String> unusedLinks = new ArrayList<>();
-        unusedLinks.add(indexUrl);
 
-        List<String> usedLinks = new ArrayList<>();
-
-        while (!unusedLinks.isEmpty()) {
-            try {
-                int unUsedLinksLastIndex = unusedLinks.size() - 1;
-                String currentUrl = unusedLinks.get(unUsedLinksLastIndex);
+        try (Connection connection = DriverManager.getConnection("jdbc:h2:file:/home/catmmao/文档/javalearn/crawler/news")) {
+            String currentUrl;
+            while ((currentUrl = findUnUsedLinkFromDatabase(connection)) != null) {
                 Document document = httpGetAndReturnHtml(currentUrl);
-                usedLinks.add(unusedLinks.remove(unUsedLinksLastIndex));
 
-                addNeedLinks(indexUrl, document, usedLinks, unusedLinks);
+                deleteLinksInDatabase(connection, "DELETE FROM LINKS_TO_BE_PROCESSED WHERE link=?", currentUrl);
+                insertLinksToDatabase(connection, "INSERT INTO LINKS_ALREADY_PROCESSED  (LINK) values(?)", currentUrl);
+                addNeedLinksToDatabase(indexUrl, document, connection);
                 storeArticleInfoIntoDatabase(document);
-            } catch (IOException e) {
-                throw new IOException(e);
             }
         }
     }
 
-    private static void addNeedLinks(String indexUrl, Document document, List<String> usedLinks, List<String> unusedLinks) {
+    private static String findUnUsedLinkFromDatabase(Connection connection) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM LINKS_TO_BE_PROCESSED LIMIT 1");
+             ResultSet unusedLink = statement.executeQuery()) {
+            if (unusedLink.next()) {
+                return unusedLink.getString("link");
+            }
+        }
+
+        return null;
+    }
+
+    private static void insertLinksToDatabase(Connection connection, String sql, String href) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, href);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void deleteLinksInDatabase(Connection connection, String sql, String href) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, href);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void addNeedLinksToDatabase(String indexUrl, Document document, Connection connection) throws SQLException {
         ArrayList<Element> links = document.select("a");
+
         for (Element link : links) {
             String href = link.attr("href");
 
-            if (!usedLinks.contains(href)) {
-                if (ifInterestLink(indexUrl, href)) {
-                    unusedLinks.add(href);
-                }
+            if (!isProcessedThisLink(connection, href) && ifInterestLink(indexUrl, href)) {
+                insertLinksToDatabase(connection, "INSERT INTO LINKS_TO_BE_PROCESSED (LINK) values(?)", href);
             }
         }
+    }
+
+    private static boolean isProcessedThisLink(Connection connection, String href) throws SQLException {
+        ResultSet resultSet = null;
+
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM LINKS_TO_BE_PROCESSED WHERE LINK=?")) {
+            statement.setString(1, href);
+            resultSet = statement.executeQuery();
+            if (resultSet.next()) {
+                return true;
+            }
+        } finally {
+            if (resultSet != null) {
+                resultSet.close();
+            }
+        }
+
+        return false;
     }
 
     private static void storeArticleInfoIntoDatabase(Document document) {
