@@ -14,12 +14,13 @@ import org.jsoup.select.Elements;
 import java.io.IOException;
 import java.sql.*;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 public class Main {
     public static void main(String[] args) throws IOException, SQLException {
         String indexUrl = "https://sina.cn";
 
-        try (Connection connection = DriverManager.getConnection("jdbc:h2:file:/home/catmmao/文档/javalearn/crawler/news")) {
+        try (Connection connection = DriverManager.getConnection("jdbc:h2:file:/home/catmmao/文档/javalearn/crawler/news", "root", "111111")) {
             String currentUrl;
             while ((currentUrl = findUnUsedLinkFromDatabase(connection)) != null) {
                 Document document = httpGetAndReturnHtml(currentUrl);
@@ -27,7 +28,7 @@ public class Main {
                 deleteLinksInDatabase(connection, "DELETE FROM LINKS_TO_BE_PROCESSED WHERE link=?", currentUrl);
                 insertLinksToDatabase(connection, "INSERT INTO LINKS_ALREADY_PROCESSED  (LINK) values(?)", currentUrl);
                 addNeedLinksToDatabase(indexUrl, document, connection);
-                storeArticleInfoIntoDatabase(document);
+                storeArticleInfoIntoDatabase(connection, document, currentUrl);
             }
         }
     }
@@ -87,10 +88,18 @@ public class Main {
         return false;
     }
 
-    private static void storeArticleInfoIntoDatabase(Document document) {
+    private static void storeArticleInfoIntoDatabase(Connection connection, Document document, String url) throws SQLException {
         Elements articles = document.select("article");
         if (!articles.isEmpty()) {
-            System.out.println(articles.select("h1").text());
+            String title = articles.select("h1").text();
+            String content = articles.select("p").stream().map(Element::text).collect(Collectors.joining("\n"));
+
+            try (PreparedStatement statement = connection.prepareStatement("INSERT INTO NEWS  (title, content, url, created_at, updated_at) values(?, ?, ?, now(), now())")) {
+                statement.setString(1, title);
+                statement.setString(2, content);
+                statement.setString(3, url);
+                statement.executeUpdate();
+            }
         }
     }
 
