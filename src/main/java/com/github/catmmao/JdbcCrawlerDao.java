@@ -3,7 +3,7 @@ package com.github.catmmao;
 import java.sql.*;
 
 public class JdbcCrawlerDao implements CrawlerDao {
-    Connection connection = DriverManager.getConnection("jdbc:h2:file:/home/catmmao/文档/javalearn/crawler/news", "root", "111111");
+    Connection connection = DriverManager.getConnection("jdbc:h2:file:/home/catmmao/文档/javalearn/crawler/news");
 
     public JdbcCrawlerDao() throws SQLException {
     }
